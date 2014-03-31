@@ -13,6 +13,14 @@ class cassandra::core (
     home => '/home/cassandra',
     managehome => true
   } ->
+  # Copy in profile. 
+  file { '/home/cassandra/.bash_profile':
+    ensure => present,
+    source => 'puppet:///modules/cassandra/cassandra.bash_profile',
+    owner => 'cassandra',
+    group => 'cassandra',
+    mode => '755'
+  } ->
 
   # Create the release directory with generic link. 
   exec { 'reldir':

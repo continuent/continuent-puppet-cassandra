@@ -149,7 +149,13 @@ class CBench
 
   # Count objects in the table. 
   def count
-    puts "Count: #{@col.count()}"
+    count = 0
+    @db.execute("select count(*) as \"c\" from #{@keyspace}.#{@table}").fetch { |row|
+    #@db.execute("select count(*) as \"c\" from cbench.rtest").fetch { |row|
+      #puts row.to_hash.inspect
+      count = row["c"] 
+    }
+    puts "Count: #{count}"
   end
 
   # Count objects in the table found with a select. 

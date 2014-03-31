@@ -32,3 +32,9 @@ This module helps install [Apache Cassandra] (http://cassandra.apache.org/) clus
     # Install and bring up Cassandra. 
     class { 'cassandra' :
     } -> Class['tungsten']
+
+### Notes
+
+Here is how to apply the Cassandra puppet module after installation.  
+
+    puppet apply --modulepath=$PWD/modules manifests/default.pp [--verbose]
