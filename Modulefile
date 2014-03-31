@@ -1,0 +1,11 @@
+name 'continuent/tungsten'
+version '0.1.0'
+
+author 'Continuent'
+license 'Apache 2.0'
+project_page 'https://github.com/continuent/continuent-puppet-cassandra'
+source 'https://github.com/continuent/continuent-puppet-cassandra'
+summary 'Module for installing Cassandra'
+description 'Set up a Cassandra cluster'
+dependency 'puppetlabs/stdlib', '>= 2.2.1'
+dependency 'puppetlabs/java', '>= 1.0.1'

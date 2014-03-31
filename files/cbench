@@ -1,0 +1,322 @@
+#!/usr/bin/ruby
+
+# A ruby version of sysbench.  
+
+require 'rubygems'
+require 'cassandra-cql'
+require 'mongo'
+require 'json'
+require 'optparse'
+include Mongo
+
+class CBench
+  def initialize()
+    # Options. 
+    @operation = nil
+    @test = nil
+    @test_params = {}
+    @keyspace = "cbench"
+    @table = "rtest"
+    @rows = 1
+    @key  = ""
+    @host = "localhost"
+    @max_seconds = 60
+    @max_xacts = 1
+    @think_time = 0
+    @replicaset = false
+
+    optparse = OptionParser.new do|opts|
+      # Set a banner, displayed at the top
+      # of the help screen.
+      opts.banner = "Usage: rbench [options]..."
+
+      # Define the operation. 
+      opts.on( '-o', '--operation OP', 'One of: prepare, run, clean' ) do |op|
+        @operation = op
+      end
+      # Define the test for run operation. 
+      opts.on('-t', '--test TEST', 'A test to run' ) do |t|
+        @test = t
+      end
+      # Define test parameters, which are comma-separated key value pairs. 
+      opts.on('-P', '--params LIST', 'Test parameters a=1,b=5,c=3 etc.' ) do |list|
+        list.split(',').each do |p|
+          pair = p.split('=')
+          key = pair[0]
+          value = pair[1]
+          @test_params[key] = value
+        end
+      end
+      # Define the key value used to generate unique record keys. 
+      opts.on( '-k', '--key VALUE', 'Optional key prefix' ) do |k|
+        @key = k
+      end
+      # Define the host(s). 
+      opts.on( '-H', '--host HOST', 'Cassandra host(s)' ) do |h|
+        hosts = h.split(',')
+        if hosts.length() > 1
+          @host = hosts
+          @replicaset = true
+        else
+          @host = h
+        end
+      end
+      # Define the keyspace. 
+      opts.on( '-d', '--keyspace kspc', 'Keyspace name' ) do |db|
+        @keyspace = db
+      end
+      # Define the table name. 
+      opts.on( '-c', '--table tab', 'Table name to use' ) do |col|
+        @table = col
+      end
+      # Define the number of rows. 
+      opts.on( '-r', '--rows ROWS', Integer, 'Number of rows to read/write' ) do|r|
+         @rows = r
+      end
+      # Define the max operations to perform. 
+      opts.on( '-x', '--max-xacts OPS', Integer, 'Max transactions to perform' ) do|mo|
+         @max_xacts = mo
+      end
+      # Define the max number of seconds to run. 
+      opts.on( '-s', '--max-seconds SECS', Integer, 'Max seconds to run' ) do|ms|
+         @max_seconds = ms
+      end
+      # Define the number of seconds to delay between test operations. 
+      opts.on( '-T', '--think-time SECS', Integer, 'Think time between test operations' ) do|secs|
+         @think_time = secs
+      end
+     
+     
+      # This displays the help screen, all programs are
+      # assumed to have this option.
+      opts.on( '-h', '--help', 'Display this help information' ) do
+        puts opts
+        exit
+      end
+    end
+    # Parse aforesaid options. 
+    optparse.parse!
+  end
+ 
+  # Connects to Cassandra. 
+  def connect 
+    puts "Connecting..."
+    if @replicaset
+      #@client = MongoReplicaSetClient.new(@host, :slave_ok => true)
+    else
+      #@client = MongoClient.new(@host, 27017, :slave_ok => true)
+    end
+    @db  = CassandraCQL::Database.new("#{@host}:9160")
+  end 
+
+  # Inserts data into the DBMS.  Here are the fields. 
+  #   _id: Primary key, uses key + i as string key to ensure uniqueness
+  #   k1 : Indexed field, uses integer value of i. 
+  #   k2 : Unindexed field, uses integer value of i. 
+  #   tag: value of key
+  #   data: Struct with two random int values plus a string. 
+  def prepare
+    puts "Creating keyspace..."
+    @db.execute("CREATE KEYSPACE #{@keyspace} WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 3}")
+    @db.execute("USE #{@keyspace}")
+
+    puts "Creating column family..."
+    @db.execute("CREATE COLUMNFAMILY #{@table} (id INT PRIMARY KEY, k1 INT, k2 INT, tag VARCHAR, data varchar, x INT, y INT)")
+    puts "Creating indexes..."
+    @db.execute("CREATE INDEX rtest_k1_idx on #{@table} (k1)")
+    puts "Inserting data..."
+    docs = []
+    for i in 1..@rows do
+      index = i % 100
+      x = rand(@rows)
+      y = rand(@rows)
+      rkey = "#{@key}#{i}"
+      @db.execute("INSERT INTO #{@table}(id,k1,k2,tag,data,x,y) values (?,?,?,?,?,?,?)", 
+        i, i, i, @key, "ABCDEFGHIJKLMNOPQRSTUVWZ*abcdefghijklmnopqrstuvwyz*aBCDEFGHIJKLMNOPQRSTUVWXYZ*abcdefghijklmnopqrstuvwxyz", x, y)
+      if i % 10000 == 0
+        puts "Inserted 10000 rows..."
+      end
+    end
+    puts "Inserted #{@rows}"
+  end
+
+  # Cleans up. 
+  def clean
+    puts "Deleting keyspace & column family..."
+    @db.execute("DROP KEYSPACE cbench")
+    puts "Deleted!"
+  end
+
+  # Count objects in the table. 
+  def count
+    puts "Count: #{@col.count()}"
+  end
+
+  # Count objects in the table found with a select. 
+  def select_count_above
+    low_val = @test_params['low']
+    if low_val.nil?
+      low = @rows
+    else
+      low = low_val.to_i
+    end
+    key = @test_params['key']
+    if key.nil?
+      key = "k1"
+    end
+    count = 0
+    @col.find(key => {"$gte" => low}).each do |doc|
+      count += 1
+    end
+    puts "Found count=#{count} low=#{low}"
+  end
+
+  # Select objects in the table. Parameters:
+  #   pct -- % to try to seek. 
+  #   key -- k1 or k2
+  def select
+    pct_val = @test_params['pct']
+    if pct_val.nil?
+      pct = 100.0
+    else
+      pct = pct_val.to_f
+    end
+    key = @test_params['key']
+    if key.nil?
+      key = "k1"
+    end
+    mid = rand(@rows)
+    half = (@rows * pct / (100 * 2)).to_i
+    first = mid - half
+    last = mid + half
+    count = 0
+    @col.find(key => {"$gte" => first.to_s, "$lte" => last.to_s}).each do |doc|
+      count += 1
+    end
+    puts "Found count=#{count} mid=#{mid} half=#{half} start=#{first} end=#{last}"
+  end
+
+  # Update objects in the table and reset data values. 
+  #   update_rows -- # of rows to update at once. 
+  #   key -- k1 or k2
+  def update
+    rows_val = @test_params['update_rows']
+    if rows_val.nil?
+      update_rows = 1
+    else
+      update_rows = rows_val.to_i
+    end
+    key = @test_params['key']
+    if key.nil?
+      key = "k1"
+    end
+    mid = rand(@rows)
+    half = update_rows / 2
+    first = mid - half
+    last = mid + half
+    @col.update({key => {"$gte" => first.to_s, "$lt" => last.to_s}}, 
+            { "$set" => { "data.x" => rand(@rows)} })
+    puts "Updated start=#{first} end=#{last}"
+  end
+
+  # Update documents in the table and increment by a number. 
+  #   key -- k1 or k2
+  #   increment -- The number to add
+  def update_increment
+    key = @test_params['key']
+    if key.nil?
+      key = "k1"
+    end
+    inc_val = @test_params['increment']
+    if inc_val.nil?
+      increment = @rows
+    else
+      increment = inc_val.to_i
+    end
+    @col.update({"_id" => {"$exists" => true}},
+            { "$inc" => { key => increment} }, 
+            {:multi => true})
+  end
+
+
+  # Executes a run. 
+  def exec
+    # Print a nice header. 
+    puts "Starting run..."
+    puts "operation  : #{@operation}"
+    puts "test       : #{@test}"
+    puts "test_params: #{@test_params.to_json}"
+    puts "host       : #{@host}"
+    puts "keyspace   : #{@keyspace}"
+    puts "table      : #{@table}"
+    puts "rows       : #{@rows}"
+
+    # Connect to MongoDB.  
+    connect()
+
+    # Execute operation. 
+    start_time = Time.now()
+    puts "Start: #{start_time}"
+    iterations = nil
+
+    if @operation == "prepare"
+      prepare()
+    elsif @operation == "clean"
+      clean()
+    elsif @operation == "run"
+      # For run operation we have tests.  Execute these until we run out
+      # of operations or time. 
+      iterations = 0
+      max_end_time = start_time.to_i + @max_seconds
+      while true do
+        if @test == "count"
+          count
+        elsif @test == "select"
+          select
+        elsif @test == "select_count_above"
+          select_count_above
+        elsif @test == "update"
+          update
+        elsif @test == "update_increment"
+          update_increment
+        else
+          puts "Unknown test: #{@test}"
+          exit 1
+        end
+
+        # See if we are done yet. 
+        iterations += 1
+        break if iterations >= @max_xacts
+        break if Time.now().to_i >= max_end_time
+
+        # If there is thinking to be done, do it now. 
+        if @think_time > 0
+          sleep(@think_time)
+        end
+      end
+    else
+      puts "Unknown operation: #{@operation}"
+      exit 1
+    end
+    end_time = Time.now()
+    diff = end_time.to_f - start_time.to_f
+    printf "Elapsed seconds: %-10.3f\n", diff
+    if ! iterations.nil?
+      puts "Requests completed: #{iterations}"
+      if iterations ==0 
+        puts "Requests/sec.: 0"
+      elsif diff == 0.0
+        puts "Requests/sec.: INFINITY"
+      else
+        printf "Average requests/sec.: %-10.3f\n", (iterations.to_f / diff)
+      end
+    end
+    puts "End: #{end_time}"
+  end
+end
+
+# Do the run. 
+rbench = CBench.new()
+rbench.exec()
+
+puts "Done!"
