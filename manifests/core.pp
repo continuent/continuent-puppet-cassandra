@@ -1,6 +1,7 @@
 # Base server installation for Cassandra server. 
 class cassandra::core (
   $version = '2.0.6',
+  $cluster_name = 'cassandra_test'
 ) {
   # Ensure cassandra group and account are created. 
   group { 'cassandra':

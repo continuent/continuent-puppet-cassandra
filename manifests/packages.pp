@@ -11,7 +11,7 @@ class cassandra::packages {
     ensure => installed
   }
   ->
-  package {'ruby-devel':
+  package {'ruby18-devel':
     ensure => installed
   }
   ->
@@ -24,6 +24,7 @@ class cassandra::packages {
     ensure => installed,
     provider => 'gem'
   }
+  ->
   package {'cassandra-cql':
     require => Package['rubygem-rake.noarch'],
     ensure => installed,

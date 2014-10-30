@@ -86,7 +86,6 @@ class CBench
          @think_time = secs
       end
      
-     
       # This displays the help screen, all programs are
       # assumed to have this option.
       opts.on( '-h', '--help', 'Display this help information' ) do
@@ -123,7 +122,8 @@ class CBench
     puts "Creating column family..."
     @db.execute("CREATE COLUMNFAMILY #{@table} (id INT PRIMARY KEY, k1 INT, k2 INT, tag VARCHAR, data varchar, x INT, y INT)")
     puts "Creating indexes..."
-    @db.execute("CREATE INDEX rtest_k1_idx on #{@table} (k1)")
+    @db.execute("CREATE INDEX k1_idx on #{@table} (k1)")
+    @db.execute("CREATE INDEX k2_idx on #{@table} (k2)")
     puts "Inserting data..."
     docs = []
     for i in 1..@rows do
@@ -151,14 +151,14 @@ class CBench
   def count
     count = 0
     @db.execute("select count(*) as \"c\" from #{@keyspace}.#{@table}").fetch { |row|
-    #@db.execute("select count(*) as \"c\" from cbench.rtest").fetch { |row|
       #puts row.to_hash.inspect
       count = row["c"] 
     }
     puts "Count: #{count}"
   end
 
-  # Count objects in the table found with a select. 
+  # Count objects in the table found with a select.  In Cassandra this cannot
+  # use an index. 
   def select_count_above
     low_val = @test_params['low']
     if low_val.nil?
@@ -171,9 +171,13 @@ class CBench
       key = "k1"
     end
     count = 0
-    @col.find(key => {"$gte" => low}).each do |doc|
-      count += 1
-    end
+    @db.execute("select * from #{@keyspace}.#{@table}").fetch { |row|
+      #puts row.to_hash.inspect
+      k1 = row["k1"]
+      if k1 >= low
+        count += 1
+      end
+    }
     puts "Found count=#{count} low=#{low}"
   end
 
@@ -196,9 +200,14 @@ class CBench
     first = mid - half
     last = mid + half
     count = 0
-    @col.find(key => {"$gte" => first.to_s, "$lte" => last.to_s}).each do |doc|
-      count += 1
-    end
+    #@col.find(key => {"$gte" => first.to_s, "$lte" => last.to_s}).each do |doc|
+    @db.execute("select * from #{@keyspace}.#{@table}").fetch { |row|
+      #puts row.to_hash.inspect
+      k1 = row["k1"]
+      if k1 >= first and k1 <= last
+        count += 1
+      end
+    }
     puts "Found count=#{count} mid=#{mid} half=#{half} start=#{first} end=#{last}"
   end
 
@@ -216,12 +225,18 @@ class CBench
     if key.nil?
       key = "k1"
     end
+    tag = @test_params['tag']
+    if tag.nil?
+      tag = "(none)"
+    end
+    puts "TAG=#{tag}"
     mid = rand(@rows)
     half = update_rows / 2
-    first = mid - half
-    last = mid + half
-    @col.update({key => {"$gte" => first.to_s, "$lt" => last.to_s}}, 
-            { "$set" => { "data.x" => rand(@rows)} })
+    first = [mid - half, 1].max
+    last = [mid + half, @rows].min
+    (first..last).each { |n|
+      @db.execute("update #{@keyspace}.#{@table} set x = #{rand(@rows)}, tag = '#{tag}' where id=#{n}")
+    }
     puts "Updated start=#{first} end=#{last}"
   end
 
@@ -257,7 +272,7 @@ class CBench
     puts "table      : #{@table}"
     puts "rows       : #{@rows}"
 
-    # Connect to MongoDB.  
+    # Connect to Cassandra.
     connect()
 
     # Execute operation. 
