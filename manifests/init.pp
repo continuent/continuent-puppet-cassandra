@@ -1,5 +1,5 @@
 class cassandra (
-  $version = '2.0.6',
+  $version = '2.1.2',
   $cluster_name = 'Continuent Cassandra Test',
   $seeds = 'db1'
 ) {

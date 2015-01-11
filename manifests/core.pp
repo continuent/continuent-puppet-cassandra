@@ -1,6 +1,6 @@
 # Base server installation for Cassandra server. 
 class cassandra::core (
-  $version = '2.0.6',
+  $version = '2.1.2',
   $cluster_name = 'cassandra_test'
 ) {
   # Ensure cassandra group and account are created. 
@@ -25,17 +25,17 @@ class cassandra::core (
 
   # Create the release directory with generic link. 
   exec { 'reldir':
-    command => '/bin/tar xzf /vagrant/downloads/apache-cassandra-2.0.6-bin.tar.gz',
+    command => '/bin/tar xzf /vagrant/downloads/apache-cassandra-2.1.2-bin.tar.gz',
     cwd => '/opt/',
-    creates => '/opt/apache-cassandra-2.0.6'
+    creates => '/opt/apache-cassandra-2.1.2'
   } ->
   file { '/opt/cassandra':
     ensure => link,
-    target => '/opt/apache-cassandra-2.0.6'
+    target => '/opt/apache-cassandra-2.1.2'
   } ->
 
   # Ensure correct permissions. 
-  file { '/opt/apache-cassandra-2.0.6':
+  file { '/opt/apache-cassandra-2.1.2':
     #require => 'reldir',
     ensure => directory,
     owner => 'cassandra',
@@ -64,9 +64,9 @@ class cassandra::core (
   } ->
 
   # Copy in cassandra configuration file. 
-  file { '/opt/apache-cassandra-2.0.6/conf/cassandra.yaml':
+  file { '/opt/apache-cassandra-2.1.2/conf/cassandra.yaml':
     ensure => present,
-    content => template('cassandra/cassandra.yaml.erb'),
+    content => template('cassandra/cassandra-2.1.2.yaml.erb'),
     owner => 'cassandra',
     group => 'cassandra'
   } ->
@@ -85,6 +85,6 @@ class cassandra::core (
     name      => 'cassandra',
     ensure    => running,
     enable    => true,
-    subscribe => File['/opt/apache-cassandra-2.0.6/conf/cassandra.yaml']
+    subscribe => File['/opt/apache-cassandra-2.1.2/conf/cassandra.yaml']
   }
 }
